@@ -10,7 +10,7 @@ import argparse
 from math import ceil
 
 # This script version, independent from the JSON versions
-NOPEUS_VERSION = "1.0"
+NOPEUS_VERSION = "1.1"
 
 # Colorful constants
 RED = '\033[91m'
@@ -36,20 +36,20 @@ else:
 
 
 # KPI + runtime acceptance values
-FIO_RUNTIME = int(300)  # Acceptance value should be 300 or more
+FIO_RUNTIME = int(300)  # Acceptance value should be this or higher
 MAX_PCT_DIFF = 10  # We allow up to 10% difference on drives of same type
-MIN_IOPS_NVME = float(10000)
+MIN_IOPS_NVME = float(20000)
 MIN_IOPS_SSD = float(800)
 MIN_IOPS_HDD = float(55)
 MEAN_IOPS_NVME = float(15000)
 MEAN_IOPS_SSD = float(1200)
 MEAN_IOPS_HDD = float(110)
-MAX_LATENCY_NVME = float(10)  # msec
-MAX_LATENCY_SSD = float(50)  # msec
-MAX_LATENCY_HDD = float(500)  # msec
-MEAN_LATENCY_NVME = float(1.0)  # msec
-MEAN_LATENCY_SSD = float(5.0)  # msec
-MEAN_LATENCY_HDD = float(15)  # msec
+MAX_LATENCY_NVME = float(20)  # msec
+MAX_LATENCY_SSD = float(100)  # msec
+MAX_LATENCY_HDD = float(1500)  # msec
+MEAN_LATENCY_NVME = float(1.5)  # msec
+MEAN_LATENCY_SSD = float(20.0)  # msec
+MEAN_LATENCY_HDD = float(150.0)  # msec
 
 #TESTS
 #PATTERNS = ["read", "randread"]
@@ -292,7 +292,7 @@ def write_json_file_from_dictionary(hosts_dictionary, json_file_str):
         with open(json_file_str, "w") as json_file:
             json.dump(hosts_dictionary, json_file)
             print(GREEN + "OK: " + NOCOLOR + "JSON file: " + json_file_str +
-                  " [over]written")
+                  " has been [over]written")
     except Exception:
         sys.exit(RED + "QUIT: " + NOCOLOR +
                  "Cannot write JSON file: " + json_file_str)
@@ -326,18 +326,18 @@ def check_drive_exists(drives_dictionary):
                 "OK: " +
                 NOCOLOR +
                 drive +
-                " defined by you as " +
+                " defined as " +
                 drives_dictionary[drive] +
-                " is in the system as block device")
+                " is a block device")
         else:
             print(
                 RED +
                 "ERROR: " +
                 NOCOLOR +
                 drive +
-                " defined by you as " +
+                " defined as " +
                 drives_dictionary[drive] +
-                " is not in the system as block device")
+                " is not a block device")
             errors = errors + 1
     if errors > 0:
         sys.exit(RED + "QUIT: " + NOCOLOR + "please check drives definition\n")
@@ -398,17 +398,48 @@ def run_tests(fio_runtime, drives_dictionary, log_dir_timestamp):
 
 
 def run_parallel_tests(fio_runtime, drives_dictionary, log_dir_timestamp):
+    HDD_drives = []
+    SSD_drives = []
+    NVME_drives = []
+    parallel_tests = []
+    for device in drives_dictionary.keys():
+        if drives_dictionary[device] == "HDD":
+            HDD_drives.append(device)
+        elif drives_dictionary[device] == "SSD":
+            SSD_drives.append(device)
+        elif drives_dictionary[device] == "NVME":
+            NVME_drives.append(device)
+    if len(HDD_drives) > 1:
+        device_long_all = ""
+        parallel_tests.append("HDD")
+        for device_short in HDD_drives:
+            device_long_all = device_long_all + "/dev/" + device_short + ":"
+        parallel_run(fio_runtime, device_long_all, "HDD", log_dir_timestamp)
+    if len(SSD_drives) > 1:
+        device_long_all = ""
+        parallel_tests.append("SSD")
+        for device_short in SSD_drives:
+            device_long_all = device_long_all + "/dev/" + device_short + ":"
+        parallel_run(fio_runtime, device_long_all, "SSD", log_dir_timestamp)
+    if len(NVME_drives) > 1:
+        device_long_all = ""
+        parallel_tests.append("NVME")
+        for device_short in NVME_drives:
+            device_long_all = device_long_all + "/dev/" + device_short + ":"
+        parallel_run(fio_runtime, device_long_all, "NVME", log_dir_timestamp)
+        
+    print(GREEN + "INFO: " + NOCOLOR + "All parallel tests completed")
+    return parallel_tests
+
+def parallel_run(fio_runtime, device_long_all, device_type, log_dir_timestamp):
     for pattern in PATTERNS:
         for blocksize in BLOCK_SIZES:
-            for device in drives_dictionary.keys():
-                print(GREEN + "INFO: " + NOCOLOR + "Going to start test " + str(pattern) + " with blocksize of " + str(blocksize) + " on device " + str(device) + " please be patient")
-                fio_command = "fio --minimal --readonly --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=40802189312 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str("/dev/"+device)+" --name="+str(device+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device+"_"+pattern+"_"+blocksize+".json")
-                #print (fio_command)
-                fio_command_list = fio_command.split()
-                subprocess.call(fio_command_list)
-                print("")  # To not overwrite last output line from FIO
-                print(GREEN + "INFO: " + NOCOLOR + "Completed test " + str(pattern) + " with blocksize of " + str(blocksize) + " on device " + str(device))
-    print(GREEN + "INFO: " + NOCOLOR + "All tests completed")
+            print(GREEN + "INFO: " + NOCOLOR + "Going to start test " + str(pattern) + " with blocksize of " + str(blocksize) + " on all devices of type " + str(device_type) + ". Please be patient")
+            fio_command = "fio --minimal --readonly --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=40802189312 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str(device_long_all)+" --name="+str(device_type+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device_type+"_"+pattern+"_"+blocksize+".json")
+            fio_command_list = fio_command.split()
+            subprocess.call(fio_command_list)
+            print("")  # To not overwrite last output line from FIO
+            print(GREEN + "INFO: " + NOCOLOR + "Completed test " + str(pattern) + " with blocksize of " + str(blocksize) + " on devices of type " + str(device_type))
 
 
 def create_local_log_dir(log_dir_timestamp):
@@ -428,6 +459,24 @@ def estimate_runtime(fio_runtime, drives_dictionary):
     n_drives = len(drives_dictionary)
     n_patterns = len(PATTERNS)
     n_blocks = len(BLOCK_SIZES)
+    HDD_drives = []
+    SSD_drives = []
+    NVME_drives = []
+    parallel_tests = []
+    for device in drives_dictionary.keys():
+        if drives_dictionary[device] == "HDD":
+            HDD_drives.append(device)
+        elif drives_dictionary[device] == "SSD":
+            SSD_drives.append(device)
+        elif drives_dictionary[device] == "NVME":
+            NVME_drives.append(device)
+    if len(HDD_drives) > 1:
+        n_drives = n_drives + 1
+    if len(SSD_drives) > 1:
+        n_drives = n_drives + 1
+    if len(NVME_drives) > 1:
+        n_drives = n_drives + 1
+    
     estimated_rt_fio = n_drives * n_patterns * n_blocks * fio_runtime
     estimated_ramp_time = n_drives * n_patterns * n_blocks * 10
     estimated_runtime = estimated_rt_fio + estimated_ramp_time
@@ -542,6 +591,103 @@ def load_fio_tests(drives_dictionary, logdir):
     return (fio_json_test_key_l, fio_iops_d, fio_iops_min_d, fio_iops_mean_d,
             fio_iops_stddev_d, fio_iops_drop_d, fio_lat_min_d, fio_lat_mean_d,
             fio_lat_stddev_d, fio_lat_max_d)
+
+
+def load_fio_parallel_tests(drives_dictionary, logdir, parallel_tests):
+    fio_json_test_key_l = []
+    fio_iops_d = {}
+    fio_iops_min_d = {}
+    fio_iops_mean_d = {}
+    fio_iops_stddev_d = {}
+    fio_iops_drop_d = {}
+    fio_lat_min_d = {}
+    fio_lat_mean_d = {}
+    fio_lat_stddev_d = {}
+    fio_lat_max_d = {}
+
+    for pattern in PATTERNS:
+        for blocksize in BLOCK_SIZES:
+            for device in parallel_tests:
+                test_key = device + "_" + pattern + "_" + blocksize
+                fio_json = str(logdir+ "/" + test_key + ".json")
+                #fio_IOPS_d[device] = fio_json[]
+                test_load = load_json(fio_json)
+                #IOPS
+                read_iops = test_load["jobs"][0]["read"]["iops"]
+                read_iops = "%.2f" % read_iops
+                read_iops_min = test_load["jobs"][0]["read"]["iops_min"]
+                read_iops_mean = test_load["jobs"][0]["read"]["iops_mean"]
+                read_iops_stddev = test_load["jobs"][0]["read"]["iops_stddev"]
+                read_iops_drop = test_load["jobs"][0]["read"]["drop_ios"]
+                fio_iops_d[test_key] = float("%.2f" % float(read_iops))
+                fio_iops_min_d[test_key] = float(read_iops_min)
+                fio_iops_mean_d[test_key] = float("%.2f" % float(read_iops_mean))
+                fio_iops_stddev_d[test_key] = float("%.2f" % float(read_iops_stddev))
+                fio_iops_drop_d[test_key] = float(read_iops_drop)
+                #LATENCY
+                read_lat_min = test_load["jobs"][0]["read"]["clat_ns"]["min"]/1000000
+                read_lat_mean = test_load["jobs"][0]["read"]["clat_ns"]["mean"]/1000000
+                read_lat_stddev = test_load["jobs"][0]["read"]["clat_ns"]["stddev"]/1000000
+                read_lat_max = test_load["jobs"][0]["read"]["clat_ns"]["max"]/1000000
+                fio_lat_min_d[test_key] = float(read_lat_min)
+                fio_lat_mean_d[test_key] = float("%.2f" % float(read_lat_mean))
+                fio_lat_stddev_d[test_key] = float("%.2f" % float(read_lat_stddev))
+                fio_lat_max_d[test_key] = float(read_lat_max)
+                #Append test_key
+                fio_json_test_key_l.append(test_key)
+
+    return (fio_json_test_key_l, fio_iops_d, fio_iops_min_d, fio_iops_mean_d,
+            fio_iops_stddev_d, fio_iops_drop_d, fio_lat_min_d, fio_lat_mean_d,
+            fio_lat_stddev_d, fio_lat_max_d)
+
+
+def parallel_tests_print(pfio_json_test_key_l, pfio_iops_d, pfio_iops_min_d, pfio_iops_mean_d, \
+    pfio_iops_stddev_d, pfio_iops_drop_d, pfio_lat_min_d, pfio_lat_mean_d, \
+    pfio_lat_stddev_d, pfio_lat_max_d):
+    fatal_error = 0
+    for test in pfio_iops_mean_d.keys():
+        print(
+            GREEN +
+            "INFO: " +
+            NOCOLOR +
+            "test " +
+            test +
+            " has mean IOPS of " +
+            str(pfio_iops_mean_d[test])
+        )
+    for test in pfio_lat_mean_d.keys():
+        print(
+            GREEN +
+            "INFO: " +
+            NOCOLOR +
+            "test " +
+            test +
+            " has mean latency of " +
+            str(pfio_lat_mean_d[test])
+        )
+    for test in pfio_iops_drop_d.keys():
+        if pfio_iops_drop_d[test] == 0:
+            print(
+                GREEN +
+                "INFO: " +
+                NOCOLOR +
+                "test " +
+                test +
+                " has IOPS drop of " +
+                str(pfio_iops_drop_d[test])
+            )
+        else:
+            print(
+                RED +
+                "ERROR: " +
+                NOCOLOR +
+                "test " +
+                test +
+                " has IOPS drop of " +
+                str(pfio_iops_drop_d[test])
+            )
+            fatal_error = fatal_error + 1
+    return fatal_error
 
 
 def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
@@ -983,9 +1129,9 @@ def compare_peers(drives_dictionary,
             str(drive_type) +
             " has IOPS percentage difference of " +
             str(iops_pct_diff) +
-            " which passes the KPI of " +
+            "% which passes the KPI of " +
             str(MAX_PCT_DIFF) +
-            " for IOPS difference for same drive type for test " +
+            "% for IOPS difference for same drive type for test " +
             str(test_key))
     else:
             print(
@@ -996,9 +1142,9 @@ def compare_peers(drives_dictionary,
                 str(drive_type) +
                 " has IOPS percentage difference of " +
                 str(iops_pct_diff) +
-                " which does not pass the KPI of " +
+                "% which does not pass the KPI of " +
                 str(MAX_PCT_DIFF) +
-                " for IOPS difference for same drive type for test " +
+                "% for IOPS difference for same drive type for test " +
                 str(test_key))
             errors = errors + 1
 
@@ -1011,9 +1157,9 @@ def compare_peers(drives_dictionary,
             str(drive_type) +
             " has latency percentage difference of " +
             str(lat_pct_diff) +
-            " which passes the KPI of " +
+            "% which passes the KPI of " +
             str(MAX_PCT_DIFF) +
-            " for latency difference for same drive type for test " +
+            "% for latency difference for same drive type for test " +
             str(test_key))
     else:
             print(
@@ -1024,9 +1170,9 @@ def compare_peers(drives_dictionary,
                 str(drive_type) +
                 " has latency percentage difference of " +
                 str(lat_pct_diff) +
-                " which does not pass the KPI of " +
+                "% which does not pass the KPI of " +
                 str(MAX_PCT_DIFF) +
-                " for latency difference for same drive type for test " +
+                "% for latency difference for same drive type for test " +
                 str(test_key))
             errors = errors + 1
     return errors
@@ -1132,15 +1278,16 @@ def main():
 
     # Run tests
     run_tests(fio_runtime, drives_dictionary, log_dir_timestamp)
-
-    # HERE WE WILL RUN PARALLEL RESULTS
+    parallel_tests = run_parallel_tests(fio_runtime, drives_dictionary, log_dir_timestamp)
 
     # Load results
     fio_json_test_key_l, fio_iops_d, fio_iops_min_d, fio_iops_mean_d, \
     fio_iops_stddev_d, fio_iops_drop_d, fio_lat_min_d, fio_lat_mean_d, \
     fio_lat_stddev_d, fio_lat_max_d = load_fio_tests(drives_dictionary, logdir)
 
-    # HERE WE WILL LOAD PARALLEL RESULTS
+    pfio_json_test_key_l, pfio_iops_d, pfio_iops_min_d, pfio_iops_mean_d, \
+    pfio_iops_stddev_d, pfio_iops_drop_d, pfio_lat_min_d, pfio_lat_mean_d, \
+    pfio_lat_stddev_d, pfio_lat_max_d = load_fio_parallel_tests(drives_dictionary, logdir, parallel_tests)
 
     # Compare against KPIs
     kpi_errors_int = compare_against_kpis(drives_dictionary,
@@ -1177,6 +1324,14 @@ def main():
               "ERROR: " +
               NOCOLOR +
               "the difference between drives is not acceptable by the KPIs")
+        kpi_errors_int = kpi_errors_int + 1
+
+    #Parallel info, drops still give error
+    parallel_errors = parallel_tests_print(pfio_json_test_key_l, pfio_iops_d, pfio_iops_min_d, pfio_iops_mean_d, \
+    pfio_iops_stddev_d, pfio_iops_drop_d, pfio_lat_min_d, pfio_lat_mean_d, \
+    pfio_lat_stddev_d, pfio_lat_max_d)
+
+    if (parallel_errors) >0:
         kpi_errors_int = kpi_errors_int + 1
 
     # Exit protocol

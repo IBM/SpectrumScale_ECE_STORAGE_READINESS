@@ -1,2 +1,4 @@
 - 1.0
   - Initial release ("Works in my lab")
+- 1.1
+    - Added parallel test of drives of the same type

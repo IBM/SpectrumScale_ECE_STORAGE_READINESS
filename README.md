@@ -24,7 +24,7 @@ Remarks:
 - Guess drives only works on Python 3 environments
 
 TODO:
-  - Add parallel run of same type of device
+  - Add type of test as parameters
 
 This tool comes with help with the ''-h'' or ''--help'' parameter
 ```
