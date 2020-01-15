@@ -8,9 +8,11 @@ import platform
 import time
 import argparse
 from math import ceil
+import subprocess
+
 
 # This script version, independent from the JSON versions
-NOPEUS_VERSION = "1.1"
+NOPEUS_VERSION = "1.2"
 
 # Colorful constants
 RED = '\033[91m'
@@ -26,7 +28,6 @@ except NameError:  # Python 3
     PYTHON3 = True
 
 if PYTHON3:
-    import subprocess
     try:
         import distro
     except ModuleNotFoundError:
@@ -119,10 +120,10 @@ def parse_arguments():
         action='store_true',
         dest='guess_drives',
         help='It guesses the drives to test and adds them to the ' +
-        'drives.json file overwritting its content. You should then ' + 
+        'drives.json file overwritting its content. You should then ' +
         'manually review the file contect before running the tool again',
         default=False)
-    
+
     parser.add_argument(
         '-t',
         '--time-per-test',
@@ -135,7 +136,7 @@ def parse_arguments():
         metavar='FIO_RUNTIME',
         type=int,
         default=int(FIO_RUNTIME))
-    
+
     parser.add_argument(
         '--rpm_check_disabled',
         action='store_true',
@@ -265,12 +266,12 @@ def try_guess_drives():
     #We guess the drives and write to drives.json file, then exit
     #Guess
     guess_boot_drive_command = "df -l |grep /boot |grep -v /boot/ | awk '($1~/dev/){print $1}' | tr -d '[0-9]' | cut -c6-"
-    boot_drive = subprocess.getoutput(guess_boot_drive_command)    
+    boot_drive = subprocess.getoutput(guess_boot_drive_command)
     guess_command = "lsblk -d -o name,rota --json"
     test_drives = subprocess.getoutput(guess_command)
     lsblk_dict = json.loads(test_drives)
-    blockdevices_list = lsblk_dict["blockdevices"]    
-   
+    blockdevices_list = lsblk_dict["blockdevices"]
+
     #Lets parse the output and add it to dict
     drives_dictionary = {}
     for drives in blockdevices_list:
@@ -303,7 +304,7 @@ def print_drives(drives_dictionary):
     if len(drives_dictionary) > 0:
         print("")
         print("We are going to test the following drives")
-        print("")    
+        print("")
         for drive in drives_dictionary.keys():
             print("\tDrive: " + str(drive) + " as " + str(drives_dictionary[drive]))
     print("")
@@ -427,7 +428,7 @@ def run_parallel_tests(fio_runtime, drives_dictionary, log_dir_timestamp):
         for device_short in NVME_drives:
             device_long_all = device_long_all + "/dev/" + device_short + ":"
         parallel_run(fio_runtime, device_long_all, "NVME", log_dir_timestamp)
-        
+
     print(GREEN + "INFO: " + NOCOLOR + "All parallel tests completed")
     return parallel_tests
 
@@ -476,7 +477,7 @@ def estimate_runtime(fio_runtime, drives_dictionary):
         n_drives = n_drives + 1
     if len(NVME_drives) > 1:
         n_drives = n_drives + 1
-    
+
     estimated_rt_fio = n_drives * n_patterns * n_blocks * fio_runtime
     estimated_ramp_time = n_drives * n_patterns * n_blocks * 10
     estimated_runtime = estimated_rt_fio + estimated_ramp_time
@@ -1219,7 +1220,7 @@ def main():
 
     # Parsing input
     valid_test, guess_drives, fio_runtime, no_rpm_check = parse_arguments()
-    
+
     # JSON loads
     os_dictionary = load_json("supported_OS.json")
     packages_dictionary = load_json("packages.json")
