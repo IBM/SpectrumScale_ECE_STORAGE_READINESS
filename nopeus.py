@@ -12,7 +12,7 @@ import subprocess
 
 
 # This script version, independent from the JSON versions
-NOPEUS_VERSION = "1.2"
+NOPEUS_VERSION = "1.3"
 
 # Colorful constants
 RED = '\033[91m'
@@ -31,12 +31,12 @@ if PYTHON3:
     try:
         import distro
     except ModuleNotFoundError:
-        sys.exit(RED + "QUIT: " + NOCOLOR + "python3-distro RPM is missing\n")
+        sys.exit(RED + "QUIT: " + NOCOLOR + "python3-distro is missing. Please install it.\n")
 else:
     import commands
 
 
-# KPI + runtime acceptance values
+# KPI + runtime acceptance values. This is sized for 128k randread
 FIO_RUNTIME = int(300)  # Acceptance value should be this or higher
 MAX_PCT_DIFF = 10  # We allow up to 10% difference on drives of same type
 MIN_IOPS_NVME = float(20000)
@@ -56,7 +56,7 @@ MEAN_LATENCY_HDD = float(150.0)  # msec
 #PATTERNS = ["read", "randread"]
 PATTERNS = ["randread"]
 #BLOCK_SIZES = ["4k", "1024k"]
-BLOCK_SIZES = ["128k"]
+#BLOCK_SIZES = ["128k"]
 
 # GITHUB URL
 GIT_URL = "https://github.com/IBM/SpectrumScale_STORAGE_READINESS"
@@ -116,6 +116,17 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     # We include number of runs and KPI as optional arguments
     parser.add_argument(
+        '-b',
+        '--block-sizes',
+        action='store',
+        dest='block_sizes',
+        help='Block size for tests. ' +
+        'The default and valid to certify is 128k. The choices are: 4k 128k 256k 512k 1024k',
+        metavar='BS_CSV',
+        type=str,
+        default="128k")
+
+    parser.add_argument(
         '--guess-drives',
         action='store_true',
         dest='guess_drives',
@@ -155,7 +166,30 @@ def parse_arguments():
     if args.fio_runtime < FIO_RUNTIME:
         valid_test = False
 
-    return (valid_test, args.guess_drives, args.fio_runtime, args.no_rpm_check)
+    # Lets check that BS_CSV is CSV format AND that has the values we accept
+    bs_list = []
+    valid_bs = ["4k", "128k", "256k", "512k", "1024k"]
+    try:
+        block_zizes_raw = args.block_sizes
+        block_sizes = block_zizes_raw.split(",")
+        for block_size in block_sizes:
+            if block_size in valid_bs:
+                bs_list.append(block_size)
+            else:
+                sys.exit(RED + "QUIT: " + NOCOLOR +
+                         "block sizes parameter contains invalid value[s]")        
+    except Exception:
+        sys.exit(RED + "QUIT: " + NOCOLOR +
+                 "block sizes parameter is not on CSV format")
+    # For the time being we only accept ONE block size for the test, enforce it
+    if len(bs_list) > 1:
+        sys.exit(RED + "QUIT: " + NOCOLOR +
+                 "block sizes parameter only allows one value at this time")
+    # KPIs are sized for randread 128k so we mark valid test OK for those only
+    if "128k" not in bs_list:
+        valid_test = False
+
+    return (valid_test, bs_list, args.guess_drives, args.fio_runtime, args.no_rpm_check)
 
 
 def rpm_is_installed(rpm_package):
@@ -383,22 +417,24 @@ def check_os_redhat(os_dictionary):
     return redhat8
 
 
-def run_tests(fio_runtime, drives_dictionary, log_dir_timestamp):
+def run_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list):
     #Lets define a basic run then interate, only reads!
     for pattern in PATTERNS:
-        for blocksize in BLOCK_SIZES:
+        for blocksize in bs_list:
             for device in drives_dictionary.keys():
                 print(GREEN + "INFO: " + NOCOLOR + "Going to start test " + str(pattern) + " with blocksize of " + str(blocksize) + " on device " + str(device) + " please be patient")
-                fio_command = "fio --minimal --readonly --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=40802189312 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str("/dev/"+device)+" --name="+str(device+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device+"_"+pattern+"_"+blocksize+".json")
+                fio_command = "fio --minimal --readonly --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=4802189312 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str("/dev/"+device)+" --name="+str(device+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device+"_"+pattern+"_"+blocksize+".json")
                 #print (fio_command)
                 fio_command_list = fio_command.split()
-                subprocess.call(fio_command_list)
+                rc = subprocess.call(fio_command_list)
+                if rc != 0:
+                    sys.exit(RED + "ERROR: " + NOCOLOR + " " + str(fio_command) + " command return a non zero return code\n")
                 print("")  # To not overwrite last output line from FIO
                 print(GREEN + "INFO: " + NOCOLOR + "Completed test " + str(pattern) + " with blocksize of " + str(blocksize) + " on device " + str(device))
-    print(GREEN + "INFO: " + NOCOLOR + "All sinlge drive tests completed")
+    print(GREEN + "INFO: " + NOCOLOR + "All single drive tests completed")
 
 
-def run_parallel_tests(fio_runtime, drives_dictionary, log_dir_timestamp):
+def run_parallel_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list):
     HDD_drives = []
     SSD_drives = []
     NVME_drives = []
@@ -415,30 +451,32 @@ def run_parallel_tests(fio_runtime, drives_dictionary, log_dir_timestamp):
         parallel_tests.append("HDD")
         for device_short in HDD_drives:
             device_long_all = device_long_all + "/dev/" + device_short + ":"
-        parallel_run(fio_runtime, device_long_all, "HDD", log_dir_timestamp)
+        parallel_run(fio_runtime, device_long_all, "HDD", log_dir_timestamp, bs_list)
     if len(SSD_drives) > 1:
         device_long_all = ""
         parallel_tests.append("SSD")
         for device_short in SSD_drives:
             device_long_all = device_long_all + "/dev/" + device_short + ":"
-        parallel_run(fio_runtime, device_long_all, "SSD", log_dir_timestamp)
+        parallel_run(fio_runtime, device_long_all, "SSD", log_dir_timestamp, bs_list)
     if len(NVME_drives) > 1:
         device_long_all = ""
         parallel_tests.append("NVME")
         for device_short in NVME_drives:
             device_long_all = device_long_all + "/dev/" + device_short + ":"
-        parallel_run(fio_runtime, device_long_all, "NVME", log_dir_timestamp)
+        parallel_run(fio_runtime, device_long_all, "NVME", log_dir_timestamp, bs_list)
 
     print(GREEN + "INFO: " + NOCOLOR + "All parallel tests completed")
     return parallel_tests
 
-def parallel_run(fio_runtime, device_long_all, device_type, log_dir_timestamp):
+def parallel_run(fio_runtime, device_long_all, device_type, log_dir_timestamp, bs_list):
     for pattern in PATTERNS:
-        for blocksize in BLOCK_SIZES:
+        for blocksize in bs_list:
             print(GREEN + "INFO: " + NOCOLOR + "Going to start test " + str(pattern) + " with blocksize of " + str(blocksize) + " on all devices of type " + str(device_type) + ". Please be patient")
-            fio_command = "fio --minimal --readonly --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=40802189312 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str(device_long_all)+" --name="+str(device_type+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device_type+"_"+pattern+"_"+blocksize+".json")
+            fio_command = "fio --minimal --readonly --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=4802189312 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str(device_long_all)+" --name="+str(device_type+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device_type+"_"+pattern+"_"+blocksize+".json")
             fio_command_list = fio_command.split()
-            subprocess.call(fio_command_list)
+            rc = subprocess.call(fio_command_list)
+            if rc != 0:
+                sys.exit(RED + "ERROR: " + NOCOLOR + " " + str(fio_command) + " command return a non zero return code\n")
             print("")  # To not overwrite last output line from FIO
             print(GREEN + "INFO: " + NOCOLOR + "Completed test " + str(pattern) + " with blocksize of " + str(blocksize) + " on devices of type " + str(device_type))
 
@@ -456,10 +494,10 @@ def create_local_log_dir(log_dir_timestamp):
                  "cannot create local directory " + logdir + "\n")
 
 
-def estimate_runtime(fio_runtime, drives_dictionary):
+def estimate_runtime(fio_runtime, drives_dictionary, bs_list):
     n_drives = len(drives_dictionary)
     n_patterns = len(PATTERNS)
-    n_blocks = len(BLOCK_SIZES)
+    n_blocks = len(bs_list)
     HDD_drives = []
     SSD_drives = []
     NVME_drives = []
@@ -485,7 +523,7 @@ def estimate_runtime(fio_runtime, drives_dictionary):
     return estimated_runtime_minutes
 
 
-def show_header(json_version, estimated_runtime_str, fio_runtime, drives_dictionary):
+def show_header(json_version, estimated_runtime_str, fio_runtime, drives_dictionary, bs_list):
     # Say hello and give chance to disagree
     while True:
         print("")
@@ -514,7 +552,18 @@ def show_header(json_version, estimated_runtime_str, fio_runtime, drives_diction
                 "WARNING: " +
                 NOCOLOR +
                 "The FIO runtime per test of " + str(fio_runtime) +
-                " seconds is not sufficient to certify the environment" + NOCOLOR)
+                " seconds is not sufficient to certify the environment")
+        print("")
+        if "128k" in bs_list:
+            print(GREEN + "The FIO blocksize of 128k is valid " +
+                  "to certify the environment" + NOCOLOR)
+        else:
+            print(
+                YELLOW +
+                "WARNING: " +
+                NOCOLOR +
+                "The FIO blocksize " +
+                "is not valid to certify the environment")
         print("")
         print(YELLOW + "This test run estimation is " +
               estimated_runtime_str + " minutes" + NOCOLOR)
@@ -527,12 +576,13 @@ def show_header(json_version, estimated_runtime_str, fio_runtime, drives_diction
         print("")
         print(
             RED +
-            "NOTE: The bandwidth numbers shown in this tool are for a very " +
-            "specific test. This is not a storage benchmark." +
+            "NOTE: The bandwidth and latency numbers shown in this tool " +
+            "are for a very specific test. " +
+            "This is not a generic storage benchmark." +
             NOCOLOR)
         print(
             RED +
-            "They do not necessarily reflect the numbers you would see with " +
+            "The numbers do not reflect the numbers you would see with " +
             "Spectrum Scale and your particular workload" +
             NOCOLOR)
         print("")
@@ -546,7 +596,7 @@ def show_header(json_version, estimated_runtime_str, fio_runtime, drives_diction
     print("")
 
 
-def load_fio_tests(drives_dictionary, logdir):
+def load_fio_tests(drives_dictionary, logdir, bs_list):
     fio_json_test_key_l = []
     fio_iops_d = {}
     fio_iops_min_d = {}
@@ -559,7 +609,7 @@ def load_fio_tests(drives_dictionary, logdir):
     fio_lat_max_d = {}
 
     for pattern in PATTERNS:
-        for blocksize in BLOCK_SIZES:
+        for blocksize in bs_list:
             for device in drives_dictionary.keys():
                 test_key = device + "_" + pattern + "_" + blocksize
                 fio_json = str(logdir+ "/" + test_key + ".json")
@@ -594,7 +644,7 @@ def load_fio_tests(drives_dictionary, logdir):
             fio_lat_stddev_d, fio_lat_max_d)
 
 
-def load_fio_parallel_tests(drives_dictionary, logdir, parallel_tests):
+def load_fio_parallel_tests(drives_dictionary, logdir, parallel_tests, bs_list):
     fio_json_test_key_l = []
     fio_iops_d = {}
     fio_iops_min_d = {}
@@ -607,7 +657,7 @@ def load_fio_parallel_tests(drives_dictionary, logdir, parallel_tests):
     fio_lat_max_d = {}
 
     for pattern in PATTERNS:
-        for blocksize in BLOCK_SIZES:
+        for blocksize in bs_list:
             for device in parallel_tests:
                 test_key = device + "_" + pattern + "_" + blocksize
                 fio_json = str(logdir+ "/" + test_key + ".json")
@@ -664,7 +714,8 @@ def parallel_tests_print(pfio_json_test_key_l, pfio_iops_d, pfio_iops_min_d, pfi
             "test " +
             test +
             " has mean latency of " +
-            str(pfio_lat_mean_d[test])
+            str(pfio_lat_mean_d[test] +
+            " msec")
         )
     for test in pfio_iops_drop_d.keys():
         if pfio_iops_drop_d[test] == 0:
@@ -762,9 +813,9 @@ def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
                             drive +
                             " with maximum latency of " +
                             str(fio_lat_max_d[test_key]) +
-                            " passes the HDD latency KPI of " +
+                            " msec passes the HDD latency KPI of " +
                             str(MAX_LATENCY_HDD) +
-                            " for test " +
+                            " msec for test " +
                             str(test_key))
                     else:
                         print(
@@ -775,9 +826,9 @@ def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
                             drive +
                             " with maximum latency of " +
                             str(fio_lat_max_d[test_key]) +
-                            " does not pass the HDD latency KPI of " +
+                            " msec does not pass the HDD latency KPI of " +
                             str(MAX_LATENCY_HDD) +
-                            " for test " +
+                            " msec for test " +
                             str(test_key))
                         errors = errors + 1
 
@@ -818,9 +869,9 @@ def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
                             drive +
                             " with mean latency of " +
                             str(fio_lat_mean_d[test_key]) +
-                            " passes the HDD latency KPI of " +
+                            " msec passes the HDD latency KPI of " +
                             str(MEAN_LATENCY_HDD) +
-                            " for test " +
+                            " msec for test " +
                             str(test_key))
                     else:
                         print(
@@ -831,9 +882,9 @@ def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
                             drive +
                             " with mean latency of " +
                             str(fio_lat_mean_d[test_key]) +
-                            " does not pass the HDD latency KPI of " +
+                            " msec does not pass the HDD latency KPI of " +
                             str(MEAN_LATENCY_HDD) +
-                            " for test " +
+                            " msec for test " +
                             str(test_key))
                         errors = errors + 1
 
@@ -875,9 +926,9 @@ def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
                             drive +
                             " with maximum latency of " +
                             str(fio_lat_max_d[test_key]) +
-                            " passes the SSD latency KPI of " +
+                            " msec passes the SSD latency KPI of " +
                             str(MAX_LATENCY_SSD) +
-                            " for test " +
+                            " msec for test " +
                             str(test_key))
                     else:
                         print(
@@ -888,9 +939,9 @@ def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
                             drive +
                             " with maximum latency of " +
                             str(fio_lat_max_d[test_key]) +
-                            " does not pass the SSD latency KPI of " +
+                            " msec does not pass the SSD latency KPI of " +
                             str(MAX_LATENCY_SSD) +
-                            " for test " +
+                            " msec for test " +
                             str(test_key))
                         errors = errors + 1
 
@@ -931,9 +982,9 @@ def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
                             drive +
                             " with mean latency of " +
                             str(fio_lat_mean_d[test_key]) +
-                            " passes the SSD latency KPI of " +
+                            " msec passes the SSD latency KPI of " +
                             str(MEAN_LATENCY_SSD) +
-                            " for test " +
+                            " msec for test " +
                             str(test_key))
                     else:
                         print(
@@ -944,9 +995,9 @@ def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
                             drive +
                             " with mean latency of " +
                             str(fio_lat_mean_d[test_key]) +
-                            " does not pass the SSD latency KPI of " +
+                            " msec does not pass the SSD latency KPI of " +
                             str(MEAN_LATENCY_SSD) +
-                            " for test " +
+                            " msec for test " +
                             str(test_key))
                         errors = errors + 1
 
@@ -988,9 +1039,9 @@ def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
                             drive +
                             " with maximum latency of " +
                             str(fio_lat_max_d[test_key]) +
-                            " passes the NVME latency KPI of " +
+                            " msec passes the NVME latency KPI of " +
                             str(MAX_LATENCY_NVME) +
-                            " for test " +
+                            " msec for test " +
                             str(test_key))
                     else:
                         print(
@@ -1001,9 +1052,9 @@ def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
                             drive +
                             " with maximum latency of " +
                             str(fio_lat_max_d[test_key]) +
-                            " does not pass the NVME latency KPI of " +
+                            " msec does not pass the NVME latency KPI of " +
                             str(MAX_LATENCY_NVME) +
-                            " for test " +
+                            " msec for test " +
                             str(test_key))
                         errors = errors + 1
 
@@ -1044,9 +1095,9 @@ def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
                             drive +
                             " with mean latency of " +
                             str(fio_lat_mean_d[test_key]) +
-                            " passes the NVME latency KPI of " +
+                            " msec passes the NVME latency KPI of " +
                             str(MEAN_LATENCY_NVME) +
-                            " for test " +
+                            " msec for test " +
                             str(test_key))
                     else:
                         print(
@@ -1057,9 +1108,9 @@ def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
                             drive +
                             " with mean latency of " +
                             str(fio_lat_mean_d[test_key]) +
-                            " does not pass the NVME latency KPI of " +
+                            " msec does not pass the NVME latency KPI of " +
                             str(MEAN_LATENCY_NVME) +
-                            " for test " +
+                            " msec for test " +
                             str(test_key))
                         errors = errors + 1
     return errors
@@ -1219,7 +1270,7 @@ def main():
                  "unexpected permissions or non existing\n")
 
     # Parsing input
-    valid_test, guess_drives, fio_runtime, no_rpm_check = parse_arguments()
+    valid_test, bs_list, guess_drives, fio_runtime, no_rpm_check = parse_arguments()
 
     # JSON loads
     os_dictionary = load_json("supported_OS.json")
@@ -1244,8 +1295,8 @@ def main():
                  "this is not a supported OS to run this tool\n")
 
     # Headers
-    estimated_runtime = estimate_runtime(fio_runtime, drives_dictionary)
-    show_header(json_version, str(estimated_runtime), fio_runtime, drives_dictionary)
+    estimated_runtime = estimate_runtime(fio_runtime, drives_dictionary, bs_list)
+    show_header(json_version, str(estimated_runtime), fio_runtime, drives_dictionary, bs_list)
 
     # Check packages
     if no_rpm_check == False:
@@ -1278,17 +1329,17 @@ def main():
     logdir = create_local_log_dir(log_dir_timestamp)
 
     # Run tests
-    run_tests(fio_runtime, drives_dictionary, log_dir_timestamp)
-    parallel_tests = run_parallel_tests(fio_runtime, drives_dictionary, log_dir_timestamp)
+    run_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list)
+    parallel_tests = run_parallel_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list)
 
     # Load results
     fio_json_test_key_l, fio_iops_d, fio_iops_min_d, fio_iops_mean_d, \
     fio_iops_stddev_d, fio_iops_drop_d, fio_lat_min_d, fio_lat_mean_d, \
-    fio_lat_stddev_d, fio_lat_max_d = load_fio_tests(drives_dictionary, logdir)
+    fio_lat_stddev_d, fio_lat_max_d = load_fio_tests(drives_dictionary, logdir, bs_list)
 
     pfio_json_test_key_l, pfio_iops_d, pfio_iops_min_d, pfio_iops_mean_d, \
     pfio_iops_stddev_d, pfio_iops_drop_d, pfio_lat_min_d, pfio_lat_mean_d, \
-    pfio_lat_stddev_d, pfio_lat_max_d = load_fio_parallel_tests(drives_dictionary, logdir, parallel_tests)
+    pfio_lat_stddev_d, pfio_lat_max_d = load_fio_parallel_tests(drives_dictionary, logdir, parallel_tests, bs_list)
 
     # Compare against KPIs
     kpi_errors_int = compare_against_kpis(drives_dictionary,
@@ -1342,3 +1393,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

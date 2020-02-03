@@ -1,13 +1,15 @@
-## THIS TOOL IS ONLY FOR INFORMATIONAL PURPOUSES AT THIS MOMENT
+## THIS TOOL IS ONLY FOR INFORMATIONAL PURPOUSES AT THIS MOMENT as KPIs are not final yet
 
 
 This tool will run a raw read storage test  using FIO tool and presenting the results on an easy to interpret manner. Also compares the device between them and against Key Performance Indicators (KPI)
 
 NOTE: This test can require a long time to execute, depending on the number of devices. This tool will display an estimated runtime at startup.
 
-Running on RHEL 8.x Systems Because RHEL8 does not define python executable, either version 2 or version 3 needs to be defined as default python using the alternatives command:
+Running on RHEL 8.x Systems Because RHEL8 does not define python executable, either version 2 or version 3 needs to be defined as default python. The way Redhat recommends to do so is using the alternatives command:
 
+```
 alternatives --config python
+```
 
 You must pick either python2 or python3. This tool will work with either python version.
 
@@ -22,6 +24,10 @@ Remarks:
 
 - This tool must be run with root privileges
 - Guess drives only works on Python 3 environments
+- The OS listed here are the supported for this tool. It does not imply on any way anything else beyond the scope of this tool
+- The block sizes are RAW device block sizes, not related to Spectrum Scale nor Spectrum Scale RAID block sizes
+- All drives must have at least a size of 8GB 
+
 
 TODO:
   - Add type of test as parameters
@@ -29,11 +35,15 @@ TODO:
 This tool comes with help with the ''-h'' or ''--help'' parameter
 ```
 # ./nopeus.py -h
-usage: nopeus.py [-h] [--guess-drives] [-t FIO_RUNTIME] [--rpm_check_disabled]
-                 [-v]
+
+usage: nopeus.py [-h] [-b BS_CSV] [--guess-drives] [-t FIO_RUNTIME]
+                 [--rpm_check_disabled] [-v]
 
 optional arguments:
   -h, --help            show this help message and exit
+  -b BS_CSV, --block-sizes BS_CSV
+                        Block size for tests. The default and valid to certify
+                        is 128k. The choices are: 4k 128k 256k 512k 1024k
   --guess-drives        It guesses the drives to test and adds them to the
                         drives.json file overwritting its content. You should
                         then manually review the file contect before running
@@ -47,7 +57,6 @@ optional arguments:
                         were used to install the required prerequisites.
                         Otherwise this tool will fail
   -v, --version         show program's version number and exit
-
 
 ```
 To run this tool you need to either populate a drives.json with the devices you want to test or let the tool guess the drives and populate the drives.json file. You can later modify the self populated drive to adapt it to your needs.
