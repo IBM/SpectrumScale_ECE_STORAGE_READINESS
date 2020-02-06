@@ -2,3 +2,7 @@
   - Initial release ("Works in my lab")
 - 1.1
     - Added parallel test of drives of the same type
+- 1.2
+    - Added block size
+- 1.3
+    - Fix parallel run

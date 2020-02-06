@@ -12,7 +12,7 @@ import subprocess
 
 
 # This script version, independent from the JSON versions
-NOPEUS_VERSION = "1.3"
+NOPEUS_VERSION = "1.4"
 
 # Colorful constants
 RED = '\033[91m'
@@ -714,8 +714,8 @@ def parallel_tests_print(pfio_json_test_key_l, pfio_iops_d, pfio_iops_min_d, pfi
             "test " +
             test +
             " has mean latency of " +
-            str(pfio_lat_mean_d[test] +
-            " msec")
+            str(pfio_lat_mean_d[test]) +
+            " msec"
         )
     for test in pfio_iops_drop_d.keys():
         if pfio_iops_drop_d[test] == 0:
