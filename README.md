@@ -36,8 +36,8 @@ This tool comes with help with the ''-h'' or ''--help'' parameter
 ```
 # ./nopeus.py -h
 
-usage: nopeus.py [-h] [-b BS_CSV] [--guess-drives] [-t FIO_RUNTIME]
-                 [--rpm_check_disabled] [-v]
+usage: nopeus.py [-h] [-b BS_CSV] [--guess-drives] [--i-want-to-lose-my-data]
+                 [-t FIO_RUNTIME] [--rpm_check_disabled] [-v]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -48,6 +48,13 @@ optional arguments:
                         drives.json file overwritting its content. You should
                         then manually review the file contect before running
                         the tool again
+  --i-want-to-lose-my-data
+                        It makes the test a write test instead of read. This
+                        will delete the data that is on the drives. So if you
+                        care about the keeping the data on the drives you
+                        really should not run with this parameter. Running
+                        with this paramenter will delete all data on the
+                        drives
   -t FIO_RUNTIME, --time-per-test FIO_RUNTIME
                         The number of seconds to run each test. The value has
                         to be at least 30 seconds.The minimum required value

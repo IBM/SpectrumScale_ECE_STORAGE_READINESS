@@ -12,7 +12,7 @@ import subprocess
 
 
 # This script version, independent from the JSON versions
-NOPEUS_VERSION = "1.4"
+NOPEUS_VERSION = "1.5"
 
 # Colorful constants
 RED = '\033[91m'
@@ -51,12 +51,6 @@ MAX_LATENCY_HDD = float(1500)  # msec
 MEAN_LATENCY_NVME = float(1.5)  # msec
 MEAN_LATENCY_SSD = float(20.0)  # msec
 MEAN_LATENCY_HDD = float(150.0)  # msec
-
-#TESTS
-#PATTERNS = ["read", "randread"]
-PATTERNS = ["randread"]
-#BLOCK_SIZES = ["4k", "1024k"]
-#BLOCK_SIZES = ["128k"]
 
 # GITHUB URL
 GIT_URL = "https://github.com/IBM/SpectrumScale_STORAGE_READINESS"
@@ -136,6 +130,17 @@ def parse_arguments():
         default=False)
 
     parser.add_argument(
+        '--i-want-to-lose-my-data',
+        action='store_true',
+        dest='write_test',
+        help='It makes the test a write test instead of read. This will ' +
+        'delete the data that is on the drives. So if you ' +
+        'care about the keeping the data on the drives you really should not ' +
+        'run with this parameter. Running with this paramenter will delete all data ' +
+        'on the drives',
+        default=False)
+
+    parser.add_argument(
         '-t',
         '--time-per-test',
         action='store',
@@ -189,7 +194,14 @@ def parse_arguments():
     if "128k" not in bs_list:
         valid_test = False
 
-    return (valid_test, bs_list, args.guess_drives, args.fio_runtime, args.no_rpm_check)
+    patterns_list = []
+    #valid_patterns = ["randread", "randwrite"]
+    if args.write_test:
+        patterns_list.append("randwrite")
+    else:
+        patterns_list.append("randread")
+
+    return (valid_test, bs_list, patterns_list, args.guess_drives, args.write_test, args.fio_runtime, args.no_rpm_check)
 
 
 def rpm_is_installed(rpm_package):
@@ -384,7 +396,7 @@ def check_distribution():
         what_dist = distro.linux_distribution()[0].lower()
     else:
         what_dist = platform.dist()[0].lower()
-    if what_dist == "redhat" or "centos":
+    if what_dist == "redhat" or "centos" or "centos linux" or "fedora":
         return what_dist
     else:  # everything esle we fail
         sys.exit(RED + "QUIT: " + NOCOLOR +
@@ -417,13 +429,13 @@ def check_os_redhat(os_dictionary):
     return redhat8
 
 
-def run_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list):
+def run_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list, patterns_list):
     #Lets define a basic run then interate, only reads!
-    for pattern in PATTERNS:
+    for pattern in patterns_list:
         for blocksize in bs_list:
             for device in drives_dictionary.keys():
                 print(GREEN + "INFO: " + NOCOLOR + "Going to start test " + str(pattern) + " with blocksize of " + str(blocksize) + " on device " + str(device) + " please be patient")
-                fio_command = "fio --minimal --readonly --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=4802189312 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str("/dev/"+device)+" --name="+str(device+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device+"_"+pattern+"_"+blocksize+".json")
+                fio_command = "fio --minimal --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=4802189312 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str("/dev/"+device)+" --name="+str(device+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device+"_"+pattern+"_"+blocksize+".json")
                 #print (fio_command)
                 fio_command_list = fio_command.split()
                 rc = subprocess.call(fio_command_list)
@@ -434,7 +446,7 @@ def run_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list):
     print(GREEN + "INFO: " + NOCOLOR + "All single drive tests completed")
 
 
-def run_parallel_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list):
+def run_parallel_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list, patterns_list):
     HDD_drives = []
     SSD_drives = []
     NVME_drives = []
@@ -451,28 +463,28 @@ def run_parallel_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_lis
         parallel_tests.append("HDD")
         for device_short in HDD_drives:
             device_long_all = device_long_all + "/dev/" + device_short + ":"
-        parallel_run(fio_runtime, device_long_all, "HDD", log_dir_timestamp, bs_list)
+        parallel_run(fio_runtime, device_long_all, "HDD", log_dir_timestamp, bs_list, patterns_list)
     if len(SSD_drives) > 1:
         device_long_all = ""
         parallel_tests.append("SSD")
         for device_short in SSD_drives:
             device_long_all = device_long_all + "/dev/" + device_short + ":"
-        parallel_run(fio_runtime, device_long_all, "SSD", log_dir_timestamp, bs_list)
+        parallel_run(fio_runtime, device_long_all, "SSD", log_dir_timestamp, bs_list, patterns_list)
     if len(NVME_drives) > 1:
         device_long_all = ""
         parallel_tests.append("NVME")
         for device_short in NVME_drives:
             device_long_all = device_long_all + "/dev/" + device_short + ":"
-        parallel_run(fio_runtime, device_long_all, "NVME", log_dir_timestamp, bs_list)
+        parallel_run(fio_runtime, device_long_all, "NVME", log_dir_timestamp, bs_list, patterns_list)
 
     print(GREEN + "INFO: " + NOCOLOR + "All parallel tests completed")
     return parallel_tests
 
-def parallel_run(fio_runtime, device_long_all, device_type, log_dir_timestamp, bs_list):
-    for pattern in PATTERNS:
+def parallel_run(fio_runtime, device_long_all, device_type, log_dir_timestamp, bs_list, patterns_list):
+    for pattern in patterns_list:
         for blocksize in bs_list:
             print(GREEN + "INFO: " + NOCOLOR + "Going to start test " + str(pattern) + " with blocksize of " + str(blocksize) + " on all devices of type " + str(device_type) + ". Please be patient")
-            fio_command = "fio --minimal --readonly --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=4802189312 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str(device_long_all)+" --name="+str(device_type+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device_type+"_"+pattern+"_"+blocksize+".json")
+            fio_command = "fio --minimal --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=4802189312 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str(device_long_all)+" --name="+str(device_type+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device_type+"_"+pattern+"_"+blocksize+".json")
             fio_command_list = fio_command.split()
             rc = subprocess.call(fio_command_list)
             if rc != 0:
@@ -494,9 +506,31 @@ def create_local_log_dir(log_dir_timestamp):
                  "cannot create local directory " + logdir + "\n")
 
 
-def estimate_runtime(fio_runtime, drives_dictionary, bs_list):
+def show_write_warning():
+    print("")
+    print(YELLOW +
+          "WARNING: " +
+          NOCOLOR +
+          "You have selected to perform a write test. This will delete all the data " +
+          "on the drives.")
+    print("")
+    print()
+    run_this = raw_input("Answer 'I WANT TO LOSE MY DATA' to continue, any other text " +
+                        "will terminate this program: ")
+    if run_this == 'I WANT TO LOSE MY DATA':
+        print("")
+        return True
+    else:
+        print(GREEN +
+            "INFO: " +
+            NOCOLOR +
+            "You have not accepted to lose your data. We stop at this point.")
+        sys.exit("Have a nice day! Bye.\n")
+
+
+def estimate_runtime(fio_runtime, drives_dictionary, bs_list, patterns_list):
     n_drives = len(drives_dictionary)
-    n_patterns = len(PATTERNS)
+    n_patterns = len(patterns_list)
     n_blocks = len(bs_list)
     HDD_drives = []
     SSD_drives = []
@@ -523,7 +557,7 @@ def estimate_runtime(fio_runtime, drives_dictionary, bs_list):
     return estimated_runtime_minutes
 
 
-def show_header(json_version, estimated_runtime_str, fio_runtime, drives_dictionary, bs_list):
+def show_header(json_version, estimated_runtime_str, fio_runtime, drives_dictionary, bs_list, patterns_list):
     # Say hello and give chance to disagree
     while True:
         print("")
@@ -565,6 +599,17 @@ def show_header(json_version, estimated_runtime_str, fio_runtime, drives_diction
                 "The FIO blocksize " +
                 "is not valid to certify the environment")
         print("")
+        if "randread" in patterns_list:
+            print(GREEN + "The FIO patterns of randread is valid " +
+                  "to certify the environment" + NOCOLOR)
+        else:
+            print(
+                YELLOW +
+                "WARNING: " +
+                NOCOLOR +
+                "The FIO pattern " +
+                "is not valid to certify the environment")
+        print("")
         print(YELLOW + "This test run estimation is " +
               estimated_runtime_str + " minutes" + NOCOLOR)
         print("")
@@ -596,7 +641,7 @@ def show_header(json_version, estimated_runtime_str, fio_runtime, drives_diction
     print("")
 
 
-def load_fio_tests(drives_dictionary, logdir, bs_list):
+def load_fio_tests(drives_dictionary, logdir, bs_list, patterns_list, write_accepted):
     fio_json_test_key_l = []
     fio_iops_d = {}
     fio_iops_min_d = {}
@@ -608,7 +653,11 @@ def load_fio_tests(drives_dictionary, logdir, bs_list):
     fio_lat_stddev_d = {}
     fio_lat_max_d = {}
 
-    for pattern in PATTERNS:
+    for pattern in patterns_list:
+        if write_accepted:
+            pattern_key = "write"
+        else:
+            pattern_key = "read"
         for blocksize in bs_list:
             for device in drives_dictionary.keys():
                 test_key = device + "_" + pattern + "_" + blocksize
@@ -616,26 +665,26 @@ def load_fio_tests(drives_dictionary, logdir, bs_list):
                 #fio_IOPS_d[device] = fio_json[]
                 test_load = load_json(fio_json)
                 #IOPS
-                read_iops = test_load["jobs"][0]["read"]["iops"]
-                read_iops = "%.2f" % read_iops
-                read_iops_min = test_load["jobs"][0]["read"]["iops_min"]
-                read_iops_mean = test_load["jobs"][0]["read"]["iops_mean"]
-                read_iops_stddev = test_load["jobs"][0]["read"]["iops_stddev"]
-                read_iops_drop = test_load["jobs"][0]["read"]["drop_ios"]
-                fio_iops_d[test_key] = float("%.2f" % float(read_iops))
-                fio_iops_min_d[test_key] = float(read_iops_min)
-                fio_iops_mean_d[test_key] = float("%.2f" % float(read_iops_mean))
-                fio_iops_stddev_d[test_key] = float("%.2f" % float(read_iops_stddev))
-                fio_iops_drop_d[test_key] = float(read_iops_drop)
+                iops = test_load["jobs"][0][pattern_key]["iops"]
+                iops = "%.2f" % iops
+                iops_min = test_load["jobs"][0][pattern_key]["iops_min"]
+                iops_mean = test_load["jobs"][0][pattern_key]["iops_mean"]
+                iops_stddev = test_load["jobs"][0][pattern_key]["iops_stddev"]
+                iops_drop = test_load["jobs"][0][pattern_key]["drop_ios"]
+                fio_iops_d[test_key] = float("%.2f" % float(iops))
+                fio_iops_min_d[test_key] = float(iops_min)
+                fio_iops_mean_d[test_key] = float("%.2f" % float(iops_mean))
+                fio_iops_stddev_d[test_key] = float("%.2f" % float(iops_stddev))
+                fio_iops_drop_d[test_key] = float(iops_drop)
                 #LATENCY
-                read_lat_min = test_load["jobs"][0]["read"]["clat_ns"]["min"]/1000000
-                read_lat_mean = test_load["jobs"][0]["read"]["clat_ns"]["mean"]/1000000
-                read_lat_stddev = test_load["jobs"][0]["read"]["clat_ns"]["stddev"]/1000000
-                read_lat_max = test_load["jobs"][0]["read"]["clat_ns"]["max"]/1000000
-                fio_lat_min_d[test_key] = float(read_lat_min)
-                fio_lat_mean_d[test_key] = float("%.2f" % float(read_lat_mean))
-                fio_lat_stddev_d[test_key] = float("%.2f" % float(read_lat_stddev))
-                fio_lat_max_d[test_key] = float(read_lat_max)
+                lat_min = test_load["jobs"][0][pattern_key]["clat_ns"]["min"]/1000000
+                lat_mean = test_load["jobs"][0][pattern_key]["clat_ns"]["mean"]/1000000
+                lat_stddev = test_load["jobs"][0][pattern_key]["clat_ns"]["stddev"]/1000000
+                lat_max = test_load["jobs"][0][pattern_key]["clat_ns"]["max"]/1000000
+                fio_lat_min_d[test_key] = float(lat_min)
+                fio_lat_mean_d[test_key] = float("%.2f" % float(lat_mean))
+                fio_lat_stddev_d[test_key] = float("%.2f" % float(lat_stddev))
+                fio_lat_max_d[test_key] = float(lat_max)
                 #Append test_key
                 fio_json_test_key_l.append(test_key)
 
@@ -644,7 +693,7 @@ def load_fio_tests(drives_dictionary, logdir, bs_list):
             fio_lat_stddev_d, fio_lat_max_d)
 
 
-def load_fio_parallel_tests(drives_dictionary, logdir, parallel_tests, bs_list):
+def load_fio_parallel_tests(drives_dictionary, logdir, parallel_tests, bs_list, patterns_list, write_accepted):
     fio_json_test_key_l = []
     fio_iops_d = {}
     fio_iops_min_d = {}
@@ -656,7 +705,11 @@ def load_fio_parallel_tests(drives_dictionary, logdir, parallel_tests, bs_list):
     fio_lat_stddev_d = {}
     fio_lat_max_d = {}
 
-    for pattern in PATTERNS:
+    for pattern in patterns_list:
+        if write_accepted:
+            pattern_key = "write"
+        else:
+            pattern_key = "read"
         for blocksize in bs_list:
             for device in parallel_tests:
                 test_key = device + "_" + pattern + "_" + blocksize
@@ -664,26 +717,26 @@ def load_fio_parallel_tests(drives_dictionary, logdir, parallel_tests, bs_list):
                 #fio_IOPS_d[device] = fio_json[]
                 test_load = load_json(fio_json)
                 #IOPS
-                read_iops = test_load["jobs"][0]["read"]["iops"]
-                read_iops = "%.2f" % read_iops
-                read_iops_min = test_load["jobs"][0]["read"]["iops_min"]
-                read_iops_mean = test_load["jobs"][0]["read"]["iops_mean"]
-                read_iops_stddev = test_load["jobs"][0]["read"]["iops_stddev"]
-                read_iops_drop = test_load["jobs"][0]["read"]["drop_ios"]
-                fio_iops_d[test_key] = float("%.2f" % float(read_iops))
-                fio_iops_min_d[test_key] = float(read_iops_min)
-                fio_iops_mean_d[test_key] = float("%.2f" % float(read_iops_mean))
-                fio_iops_stddev_d[test_key] = float("%.2f" % float(read_iops_stddev))
-                fio_iops_drop_d[test_key] = float(read_iops_drop)
+                iops = test_load["jobs"][0][pattern_key]["iops"]
+                iops = "%.2f" % iops
+                iops_min = test_load["jobs"][0][pattern_key]["iops_min"]
+                iops_mean = test_load["jobs"][0][pattern_key]["iops_mean"]
+                iops_stddev = test_load["jobs"][0][pattern_key]["iops_stddev"]
+                iops_drop = test_load["jobs"][0][pattern_key]["drop_ios"]
+                fio_iops_d[test_key] = float("%.2f" % float(iops))
+                fio_iops_min_d[test_key] = float(iops_min)
+                fio_iops_mean_d[test_key] = float("%.2f" % float(iops_mean))
+                fio_iops_stddev_d[test_key] = float("%.2f" % float(iops_stddev))
+                fio_iops_drop_d[test_key] = float(iops_drop)
                 #LATENCY
-                read_lat_min = test_load["jobs"][0]["read"]["clat_ns"]["min"]/1000000
-                read_lat_mean = test_load["jobs"][0]["read"]["clat_ns"]["mean"]/1000000
-                read_lat_stddev = test_load["jobs"][0]["read"]["clat_ns"]["stddev"]/1000000
-                read_lat_max = test_load["jobs"][0]["read"]["clat_ns"]["max"]/1000000
-                fio_lat_min_d[test_key] = float(read_lat_min)
-                fio_lat_mean_d[test_key] = float("%.2f" % float(read_lat_mean))
-                fio_lat_stddev_d[test_key] = float("%.2f" % float(read_lat_stddev))
-                fio_lat_max_d[test_key] = float(read_lat_max)
+                lat_min = test_load["jobs"][0][pattern_key]["clat_ns"]["min"]/1000000
+                lat_mean = test_load["jobs"][0][pattern_key]["clat_ns"]["mean"]/1000000
+                lat_stddev = test_load["jobs"][0][pattern_key]["clat_ns"]["stddev"]/1000000
+                lat_max = test_load["jobs"][0][pattern_key]["clat_ns"]["max"]/1000000
+                fio_lat_min_d[test_key] = float(lat_min)
+                fio_lat_mean_d[test_key] = float("%.2f" % float(lat_mean))
+                fio_lat_stddev_d[test_key] = float("%.2f" % float(lat_stddev))
+                fio_lat_max_d[test_key] = float(lat_max)
                 #Append test_key
                 fio_json_test_key_l.append(test_key)
 
@@ -1270,7 +1323,7 @@ def main():
                  "unexpected permissions or non existing\n")
 
     # Parsing input
-    valid_test, bs_list, guess_drives, fio_runtime, no_rpm_check = parse_arguments()
+    valid_test, bs_list, patterns_list, guess_drives, write_test, fio_runtime, no_rpm_check = parse_arguments()
 
     # JSON loads
     os_dictionary = load_json("supported_OS.json")
@@ -1288,15 +1341,18 @@ def main():
 
     # Check OS
     linux_distribution = check_distribution()
-    if linux_distribution in ["redhat", "centos", "fedora", "red hat enterprise linux"]:
+    if linux_distribution in ["redhat", "centos", "centos linux", "fedora", "red hat enterprise linux"]:
         redhat8 = check_os_redhat(os_dictionary)
     else:
         sys.exit(RED + "QUIT: " + NOCOLOR +
                  "this is not a supported OS to run this tool\n")
 
     # Headers
-    estimated_runtime = estimate_runtime(fio_runtime, drives_dictionary, bs_list)
-    show_header(json_version, str(estimated_runtime), fio_runtime, drives_dictionary, bs_list)
+    estimated_runtime = estimate_runtime(fio_runtime, drives_dictionary, bs_list, patterns_list)
+    show_header(json_version, str(estimated_runtime), fio_runtime, drives_dictionary, bs_list, patterns_list)
+    write_accepted = False
+    if write_test:
+        write_accepted = show_write_warning()
 
     # Check packages
     if no_rpm_check == False:
@@ -1329,17 +1385,20 @@ def main():
     logdir = create_local_log_dir(log_dir_timestamp)
 
     # Run tests
-    run_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list)
-    parallel_tests = run_parallel_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list)
+    if write_accepted:
+        # Second and last warning about write tests
+        show_write_warning()
+    run_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list, patterns_list)
+    parallel_tests = run_parallel_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list, patterns_list)
 
     # Load results
     fio_json_test_key_l, fio_iops_d, fio_iops_min_d, fio_iops_mean_d, \
     fio_iops_stddev_d, fio_iops_drop_d, fio_lat_min_d, fio_lat_mean_d, \
-    fio_lat_stddev_d, fio_lat_max_d = load_fio_tests(drives_dictionary, logdir, bs_list)
+    fio_lat_stddev_d, fio_lat_max_d = load_fio_tests(drives_dictionary, logdir, bs_list, patterns_list, write_accepted)
 
     pfio_json_test_key_l, pfio_iops_d, pfio_iops_min_d, pfio_iops_mean_d, \
     pfio_iops_stddev_d, pfio_iops_drop_d, pfio_lat_min_d, pfio_lat_mean_d, \
-    pfio_lat_stddev_d, pfio_lat_max_d = load_fio_parallel_tests(drives_dictionary, logdir, parallel_tests, bs_list)
+    pfio_lat_stddev_d, pfio_lat_max_d = load_fio_parallel_tests(drives_dictionary, logdir, parallel_tests, bs_list, patterns_list, write_accepted)
 
     # Compare against KPIs
     kpi_errors_int = compare_against_kpis(drives_dictionary,

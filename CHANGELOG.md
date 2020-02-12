@@ -6,3 +6,7 @@
     - Added block size
 - 1.3
     - Fix parallel run
+- 1.4
+    - Error fixes
+- 1.5
+    - Added write tests
