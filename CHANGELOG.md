@@ -10,3 +10,9 @@
     - Error fixes
 - 1.5
     - Added write tests
+- 1.6
+    - Fix typos
+    - Fix KPIs
+    - Align offset to 4K
+    - clear that 128k is the blocsize that needs to be run for KPI comparision
+

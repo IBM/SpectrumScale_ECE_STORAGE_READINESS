@@ -27,6 +27,7 @@ Remarks:
 - The OS listed here are the supported for this tool. It does not imply on any way anything else beyond the scope of this tool
 - The block sizes are RAW device block sizes, not related to Spectrum Scale nor Spectrum Scale RAID block sizes
 - All drives must have at least a size of 8GB 
+- The KPI are based on 128k block size. A run with 128 read test must be passed to certify the environment
 
 
 TODO:

@@ -12,7 +12,7 @@ import subprocess
 
 
 # This script version, independent from the JSON versions
-NOPEUS_VERSION = "1.5"
+NOPEUS_VERSION = "1.6"
 
 # Colorful constants
 RED = '\033[91m'
@@ -39,7 +39,7 @@ else:
 # KPI + runtime acceptance values. This is sized for 128k randread
 FIO_RUNTIME = int(300)  # Acceptance value should be this or higher
 MAX_PCT_DIFF = 10  # We allow up to 10% difference on drives of same type
-MIN_IOPS_NVME = float(20000)
+MIN_IOPS_NVME = float(10000)
 MIN_IOPS_SSD = float(800)
 MIN_IOPS_HDD = float(55)
 MEAN_IOPS_NVME = float(15000)
@@ -115,7 +115,8 @@ def parse_arguments():
         action='store',
         dest='block_sizes',
         help='Block size for tests. ' +
-        'The default and valid to certify is 128k. The choices are: 4k 128k 256k 512k 1024k',
+        'The default and value to certify the environment is 128k. ' +
+        'You can pick one from the following: 4k 128k 256k 512k 1024k',
         metavar='BS_CSV',
         type=str,
         default="128k")
@@ -126,7 +127,7 @@ def parse_arguments():
         dest='guess_drives',
         help='It guesses the drives to test and adds them to the ' +
         'drives.json file overwritting its content. You should then ' +
-        'manually review the file contect before running the tool again',
+        'manually review the file content before running the tool again',
         default=False)
 
     parser.add_argument(
@@ -435,7 +436,7 @@ def run_tests(fio_runtime, drives_dictionary, log_dir_timestamp, bs_list, patter
         for blocksize in bs_list:
             for device in drives_dictionary.keys():
                 print(GREEN + "INFO: " + NOCOLOR + "Going to start test " + str(pattern) + " with blocksize of " + str(blocksize) + " on device " + str(device) + " please be patient")
-                fio_command = "fio --minimal --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=4802189312 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str("/dev/"+device)+" --name="+str(device+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device+"_"+pattern+"_"+blocksize+".json")
+                fio_command = "fio --minimal --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=4802187264 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str("/dev/"+device)+" --name="+str(device+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device+"_"+pattern+"_"+blocksize+".json")
                 #print (fio_command)
                 fio_command_list = fio_command.split()
                 rc = subprocess.call(fio_command_list)
@@ -484,7 +485,7 @@ def parallel_run(fio_runtime, device_long_all, device_type, log_dir_timestamp, b
     for pattern in patterns_list:
         for blocksize in bs_list:
             print(GREEN + "INFO: " + NOCOLOR + "Going to start test " + str(pattern) + " with blocksize of " + str(blocksize) + " on all devices of type " + str(device_type) + ". Please be patient")
-            fio_command = "fio --minimal --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=4802189312 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str(device_long_all)+" --name="+str(device_type+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device_type+"_"+pattern+"_"+blocksize+".json")
+            fio_command = "fio --minimal --invalidate=1 --ramp_time=10 --iodepth=16 --ioengine=libaio --time_based --direct=1 --stonewall --io_size=268435456 --offset=4802187264 --runtime="+str(fio_runtime)+" --bs="+str(blocksize)+" --rw="+str(pattern)+" --filename="+str(device_long_all)+" --name="+str(device_type+"_"+pattern+"_"+blocksize)+" --output-format=json --output="+str("./log/"+log_dir_timestamp+"/"+device_type+"_"+pattern+"_"+blocksize+".json")
             fio_command_list = fio_command.split()
             rc = subprocess.call(fio_command_list)
             if rc != 0:
@@ -1064,7 +1065,7 @@ def compare_against_kpis(drives_dictionary, fio_json_test_key_l,
                             drive +
                             " with minimum IOPS of " +
                             str(fio_iops_min_d[test_key]) +
-                            " passes the HDD IOPS KPI of " +
+                            " passes the NVME IOPS KPI of " +
                             str(MIN_IOPS_NVME) +
                             " for test " +
                             str(test_key))
