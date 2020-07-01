@@ -1,6 +1,3 @@
-## THIS TOOL IS ONLY FOR INFORMATIONAL PURPOUSES AT THIS MOMENT as KPIs are not final yet
-
-
 This tool will run a raw read storage test  using FIO tool and presenting the results on an easy to interpret manner. Also compares the device between them and against Key Performance Indicators (KPI)
 
 NOTE: This test can require a long time to execute, depending on the number of devices. This tool will display an estimated runtime at startup.
