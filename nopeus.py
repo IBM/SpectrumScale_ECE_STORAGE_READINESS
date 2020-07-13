@@ -12,7 +12,7 @@ import subprocess
 
 
 # This script version, independent from the JSON versions
-NOPEUS_VERSION = "1.6"
+NOPEUS_VERSION = "1.7"
 
 # Colorful constants
 RED = '\033[91m'
@@ -515,7 +515,7 @@ def show_write_warning():
           "You have selected to perform a write test. This will delete all the data " +
           "on the drives.")
     print("")
-    print()
+    print("")
     run_this = raw_input("Answer 'I WANT TO LOSE MY DATA' to continue, any other text " +
                         "will terminate this program: ")
     if run_this == 'I WANT TO LOSE MY DATA':
