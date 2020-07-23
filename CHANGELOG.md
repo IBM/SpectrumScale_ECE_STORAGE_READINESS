@@ -15,4 +15,6 @@
     - Fix KPIs
     - Align offset to 4K
     - clear that 128k is the blocsize that needs to be run for KPI comparision
+- 1.7
+    - Fixed typo on write test
 
